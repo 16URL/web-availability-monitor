@@ -30,17 +30,17 @@ func (c *Checker) Check(ctx context.Context, url string) (result Result) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return Result{
-			StatusCode: 0,
-			CheckedAt:  startTime,
-			Error:      err,
+			StatusCode:     0,
+			CheckedAt:      startTime,
+			ResponseTimeMs: (time.Since(startTime)).Milliseconds(),
+			Error:          err,
 		}
 	}
 	resp, err := c.client.Do(req)
-	totalTime := (time.Since(startTime)).Milliseconds()
 	if err != nil {
 		return Result{
 			StatusCode:     0,
-			ResponseTimeMs: totalTime,
+			ResponseTimeMs: (time.Since(startTime)).Milliseconds(),
 			CheckedAt:      startTime,
 			Error:          err,
 		}
@@ -49,7 +49,7 @@ func (c *Checker) Check(ctx context.Context, url string) (result Result) {
 
 	return Result{
 		StatusCode:     resp.StatusCode,
-		ResponseTimeMs: totalTime,
+		ResponseTimeMs: (time.Since(startTime)).Milliseconds(),
 		CheckedAt:      startTime,
 		Error:          nil,
 	}

@@ -1,4 +1,4 @@
-//internal/httpserver/httpserver.go
+//internal/httpserver/routes.go
 
 package httpserver
 
@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
+	"strings"
 	"webaviable/storage"
 )
 
@@ -51,7 +53,7 @@ func (s *HTTPServer) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /urls/{alias}/checks", func(w http.ResponseWriter, r *http.Request) {
 		alias := r.PathValue("alias")
 
-		checks, err := s.service.GetChecks(alias)
+		result, err := s.service.GetChecks(alias)
 		if err != nil {
 			if errors.Is(err, storage.ErrURLNotFound) {
 				http.Error(w, "404", http.StatusNotFound)
@@ -62,9 +64,10 @@ func (s *HTTPServer) registerRoutes(mux *http.ServeMux) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(checks); err != nil {
+		if err := json.NewEncoder(w).Encode(result); err != nil {
 			return
 		}
+
 	})
 
 	mux.HandleFunc("GET /urls/{alias}/check", func(w http.ResponseWriter, r *http.Request) {
@@ -91,13 +94,23 @@ func (s *HTTPServer) registerRoutes(mux *http.ServeMux) {
 			Alias string `json:"alias"`
 			URL   string `json:"url"`
 		}
-		var url NewURL
-		err := json.NewDecoder(r.Body).Decode(&url)
+		var input NewURL
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+		err := json.NewDecoder(r.Body).Decode(&input)
 		if err != nil {
 			http.Error(w, "can't read JSON:"+err.Error(), http.StatusBadRequest)
 			return
 		}
-		if _, err := s.service.AddURL(url.Alias, url.URL); err != nil {
+		if strings.TrimSpace(input.Alias) == "" || strings.TrimSpace(input.URL) == "" {
+			http.Error(w, "alias and url are required", http.StatusBadRequest)
+			return
+		}
+		parsedURL, err := url.ParseRequestURI(input.URL)
+		if err != nil || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") || parsedURL.Host == "" {
+			http.Error(w, "invalid url format", http.StatusBadRequest)
+			return
+		}
+		if _, err := s.service.AddURL(input.Alias, input.URL); err != nil {
 			if errors.Is(err, storage.ErrURLExists) {
 				http.Error(w, "that url already have", http.StatusConflict)
 				return

@@ -14,14 +14,15 @@ type HTTPServer struct {
 	service *service.Service
 }
 
-func NewHTTPServer(addr string, readTimeOut time.Duration, idleTimeOut time.Duration, service *service.Service) *HTTPServer {
+func NewHTTPServer(addr string, readTimeOut time.Duration, idleTimeOut time.Duration, writeTimeout time.Duration, service *service.Service) *HTTPServer {
 	mux := http.NewServeMux()
 	s := &HTTPServer{
 		Server: &http.Server{
-			Addr:        addr,
-			ReadTimeout: readTimeOut,
-			IdleTimeout: idleTimeOut,
-			Handler:     mux,
+			Addr:         addr,
+			ReadTimeout:  readTimeOut,
+			IdleTimeout:  idleTimeOut,
+			WriteTimeout: writeTimeout,
+			Handler:      mux,
 		}, service: service,
 	}
 	s.registerRoutes(mux)

@@ -4,6 +4,7 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sync"
 	"time"
@@ -18,6 +19,9 @@ type Scheduler struct {
 }
 
 func NewScheduler(svc *service.Service, interval time.Duration, log *slog.Logger, workers int) *Scheduler {
+	if workers <= 0 {
+		workers = 1
+	}
 	return &Scheduler{service: svc, interval: interval, slog: log, worker: workers}
 }
 
@@ -36,6 +40,9 @@ func (s *Scheduler) Start(ctx context.Context) {
 }
 
 func (s *Scheduler) checkAll(ctx context.Context) {
+	if ctx.Err() != nil {
+		return
+	}
 	var wg sync.WaitGroup
 
 	items, err := s.service.GetAllURLs()
@@ -69,12 +76,20 @@ func (s *Scheduler) checkAll(ctx context.Context) {
 				case <-ctx.Done():
 					return
 				case alias, ok := <-jobs:
-					if ok == false {
+					if !ok {
 						return
 					}
-					if _, err := s.service.CheckURL(alias, ctx); err != nil {
-						s.slog.Error("failed to check URL", slog.Any("error", err))
+					_, err := s.service.CheckURL(alias, ctx)
+					if err == nil {
+						continue
 					}
+					if ctx.Err() != nil {
+						return
+					}
+					if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+						continue
+					}
+					s.slog.Error("failed to check URL", slog.Any("error", err), slog.String("alias", alias))
 				}
 			}
 		}()

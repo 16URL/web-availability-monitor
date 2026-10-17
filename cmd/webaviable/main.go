@@ -1,3 +1,5 @@
+//cmd/wevaviable/main.go
+
 package main
 
 import (
@@ -29,12 +31,12 @@ func main() {
 	defer sqliter.Close()
 
 	client := &http.Client{
-		Timeout: cfg.HTTPServer.Timeout,
+		Timeout: cfg.Checker.Timeout,
 	}
 	urlChecker := checker.NewChecker(client)
 	service := service.NewService(sqliter, urlChecker)
 
-	httpServer := httpserver.NewHTTPServer(cfg.HTTPServer.Address, cfg.HTTPServer.Timeout, cfg.HTTPServer.IdleTimeout, service)
+	httpServer := httpserver.NewHTTPServer(cfg.HTTPServer.Address, cfg.HTTPServer.Timeout, cfg.HTTPServer.IdleTimeout, cfg.HTTPServer.WriteTimeout, service)
 	log.Info("starting server", slog.String("address", cfg.HTTPServer.Address))
 
 	scheduler := scheduler.NewScheduler(service, 5*time.Minute, log, 10)
@@ -72,7 +74,7 @@ func main() {
 
 const (
 	envLocal = "local"
-	encDev   = "dev"
+	envDev   = "dev"
 	envProd  = "prod"
 )
 
@@ -82,10 +84,15 @@ func setupLogger(env string) *slog.Logger {
 	switch env {
 	case envLocal:
 		log = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	case encDev:
+	case envDev:
 		log = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	case envProd:
 		log = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	default:
+		log = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+			Level: slog.LevelInfo,
+		}))
 	}
+
 	return log
 }
