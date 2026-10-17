@@ -52,7 +52,7 @@ func New(storagePath string) (*Storage, error) {
 		http_status INTEGER NOT NULL,
 		response_time_ms INTEGER NOT NULL,
         checked_at DATETIME NOT NULL,
-		FOREIGN KEY(url_id) REFERENCES url(id)
+		FOREIGN KEY(url_id) REFERENCES url(id) ON DELETE CASCADE
 	);
 	CREATE INDEX IF NOT EXISTS idx_checks_url_checked_at
 	ON checks(url_id, checked_at);
@@ -63,6 +63,29 @@ func New(storagePath string) (*Storage, error) {
 	}
 
 	return &Storage{db: db}, nil
+}
+func (s *Storage) DeleteURL(alias string) error {
+	const op = "storage.sqlite.DeleteURL"
+
+	stmt, err := s.db.Prepare("DELETE FROM url WHERE alias = ?;")
+	if err != nil {
+		return fmt.Errorf("%s, trouble with delete: %w", op, err)
+	}
+	defer stmt.Close()
+
+	res, err := stmt.Exec(alias)
+	if err != nil {
+		return fmt.Errorf("%s, execute statement: %w", op, err)
+	}
+
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("%s, rows affected: %w", op, err)
+	}
+	if rowsAffected == 0 {
+		return fmt.Errorf("%s: %w", op, storage.ErrURLNotFound)
+	}
+	return nil
 }
 
 func (s *Storage) SaveURL(alias string, url string) (int64, error) {

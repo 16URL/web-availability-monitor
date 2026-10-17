@@ -26,6 +26,7 @@ type Storage interface {
 	GetChecks(urlID int64) ([]Check, error)
 	GetURL(alias string) (URL, error)
 	GetAllURLs() ([]URL, error)
+	DeleteURL(alias string) error
 	Close() error
 }
 

@@ -1,3 +1,5 @@
+//internal/config/config.go
+
 package config
 
 import (
@@ -8,11 +10,9 @@ import (
 	"github.com/ilyakaznacheev/cleanenv"
 )
 
-//internal/config/config.go
-
 type Config struct {
 	Env          string `yaml:"env" env-default:"development"`
-	Storage_Path string `yaml:"storage_path" env-requierd:"true"`
+	Storage_Path string `yaml:"storage_path" env-required:"true"`
 	HTTPServer   `yaml:"http_server"`
 }
 
