@@ -1,0 +1,247 @@
+---
+import Layout from "../layouts/Layout.astro";
+---
+
+<Layout title="Websites | Web Monitor">
+  <header class="page-head">
+    <h1>Websites</h1>
+    <button class="btn" id="refresh" type="button">Refresh</button>
+  </header>
+  <p class="muted summary" id="summary" aria-live="polite"></p>
+
+  <form id="add-form">
+    <label>
+      Name
+      <input name="alias" placeholder="google" required maxlength="100" autocomplete="off" />
+    </label>
+    <label>
+      URL
+      <input name="url" type="url" placeholder="https://example.com" required />
+    </label>
+    <button class="btn primary" id="add" type="submit">Add</button>
+  </form>
+  <p class="note" id="notice" role="status"></p>
+
+  <p class="empty" id="state" role="status">Loading...</p>
+  <ul class="sites" id="list"></ul>
+</Layout>
+
+<script>
+  import {
+    addSite, byId, checkNow, deleteSite, describe, el, errorMessage,
+    formatTime, getChecks, getSites, isUp, setNote,
+    type Check, type Site,
+  } from "../lib/api";
+
+  const list = byId<HTMLUListElement>("list");
+  const state = byId<HTMLParagraphElement>("state");
+  const notice = byId<HTMLParagraphElement>("notice");
+  const summary = byId<HTMLParagraphElement>("summary");
+  const refresh = byId<HTMLButtonElement>("refresh");
+  const addButton = byId<HTMLButtonElement>("add");
+  const form = byId<HTMLFormElement>("add-form");
+
+  function row(site: Site, check?: Check) {
+    const s = describe(check);
+    const meta = check
+      ? `${check.HTTPStatus || "no response"} · ${check.ResponseTimeMs} ms · ${formatTime(check.CheckedAt)}`
+      : "Not checked yet";
+
+    const checkButton = el("button", { class: "btn", type: "button" }, "Check now");
+    checkButton.addEventListener("click", async () => {
+      checkButton.disabled = true;
+      setNote(notice, "");
+      try {
+        await checkNow(site.Alias);
+        await load();
+      } catch (e) {
+        setNote(notice, `Could not check ${site.Alias}: ${errorMessage(e)}`, "error");
+        checkButton.disabled = false;
+      }
+    });
+
+    const deleteButton = el("button", { class: "btn danger", type: "button" }, "Delete");
+    deleteButton.addEventListener("click", async () => {
+      if (!confirm(`Delete "${site.Alias}" and its check history?`)) return;
+      deleteButton.disabled = true;
+      setNote(notice, "");
+      try {
+        await deleteSite(site.Alias);
+        await load();
+      } catch (e) {
+        setNote(notice, `Could not delete ${site.Alias}: ${errorMessage(e)}`, "error");
+        deleteButton.disabled = false;
+      }
+    });
+
+    const link = /^https?:\/\//i.test(site.URL)
+      ? el("a", { class: "site-url", href: site.URL, target: "_blank", rel: "noopener noreferrer" }, site.URL)
+      : el("span", { class: "site-url" }, site.URL);
+
+    return el("li", { class: "site" },
+      el("div", { class: "site-main" }, el("span", { class: "site-name" }, site.Alias), link),
+      el("div", { class: "site-state" },
+        el("span", { class: `status ${s.cls}` }, s.label),
+        el("span", { class: "site-meta" }, meta)),
+      el("div", { class: "site-actions" },
+        el("a", { href: `/history?alias=${encodeURIComponent(site.Alias)}` }, "History"),
+        checkButton,
+        deleteButton));
+  }
+
+  function summarize(sites: number, checks: (Check | undefined)[]) {
+    const up = checks.filter((c) => c && isUp(c)).length;
+    const down = checks.filter((c) => c && !isUp(c)).length;
+    const none = sites - up - down;
+    const parts = [`${sites} ${sites === 1 ? "site" : "sites"}`];
+    if (up) parts.push(`${up} up`);
+    if (down) parts.push(`${down} down`);
+    if (none) parts.push(`${none} not checked`);
+    summary.textContent = sites ? parts.join(", ") : "";
+  }
+
+  async function load() {
+    refresh.disabled = true;
+    setNote(state, "Loading...");
+    try {
+      const sites = await getSites();
+      // Latest check comes first: the API returns history newest to oldest.
+      const latest = await Promise.all(
+        sites.map((s) => getChecks(s.Alias).then((c) => c[0], () => undefined)),
+      );
+      list.replaceChildren(...sites.map((s, i) => row(s, latest[i])));
+      summarize(sites.length, latest);
+      setNote(state, sites.length ? "" : "No websites yet. Add the first one with the form above.");
+    } catch (e) {
+      list.replaceChildren();
+      summary.textContent = "";
+      setNote(state, `Could not load websites: ${errorMessage(e)}`, "error");
+    } finally {
+      refresh.disabled = false;
+    }
+  }
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const data = new FormData(form);
+    const alias = String(data.get("alias")).trim();
+    const url = String(data.get("url")).trim();
+
+    addButton.disabled = true;
+    setNote(notice, "");
+    try {
+      await addSite(alias, url);
+      form.reset();
+      // Run the first check right away instead of waiting for the scheduler.
+      await checkNow(alias).catch(() => {});
+      setNote(notice, `Added ${alias}.`, "ok");
+      await load();
+    } catch (e) {
+      setNote(notice, `Could not add: ${errorMessage(e)}`, "error");
+    } finally {
+      addButton.disabled = false;
+    }
+  });
+
+  refresh.addEventListener("click", load);
+  load();
+</script>
+
+<style is:global>
+  .summary {
+    margin: 0.25rem 0 1.25rem;
+    min-height: 1.5em;
+  }
+
+  #add-form {
+    display: grid;
+    grid-template-columns: 1fr 1.6fr auto;
+    gap: 0.75rem;
+    align-items: end;
+  }
+
+  #add-form label {
+    display: grid;
+    gap: 0.25rem;
+    font-size: 0.875rem;
+    color: var(--muted);
+  }
+
+  .sites {
+    margin: 1rem 0 0;
+    padding: 0;
+    list-style: none;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .sites:empty {
+    border-bottom: 0;
+  }
+
+  .site {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 1.25rem;
+    padding: 1rem 0;
+    border-top: 1px solid var(--border);
+  }
+
+  .site-main {
+    flex: 1 1 14rem;
+    min-width: 0;
+  }
+
+  .site-name {
+    display: block;
+    font-weight: 600;
+  }
+
+  .site-url {
+    display: block;
+    color: var(--muted);
+    font-size: 0.875rem;
+    overflow-wrap: anywhere;
+  }
+
+  .site-state {
+    display: grid;
+    gap: 0.1rem;
+    min-width: 12rem;
+  }
+
+  .site-meta {
+    color: var(--muted);
+    font-size: 0.875rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .site-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-left: auto;
+  }
+
+  .site-actions a {
+    padding: 0.65rem 0.25rem;
+  }
+
+  @media (min-width: 761px) {
+    .site {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 18.5rem auto;
+    }
+  }
+
+  @media (max-width: 640px) {
+    #add-form {
+      grid-template-columns: 1fr;
+    }
+
+    .site-actions {
+      margin-left: 0;
+      flex-wrap: wrap;
+    }
+  }
+</style>

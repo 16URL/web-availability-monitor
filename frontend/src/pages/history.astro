@@ -1,0 +1,171 @@
+---
+import Layout from "../layouts/Layout.astro";
+---
+
+<Layout title="History | Web Monitor">
+  <header class="page-head">
+    <h1>History</h1>
+    <button class="btn" id="refresh" type="button">Refresh</button>
+  </header>
+
+  <label class="picker">
+    Website
+    <select id="site"></select>
+  </label>
+  <p class="muted summary" id="summary" aria-live="polite"></p>
+
+  <p class="empty" id="state" role="status">Loading...</p>
+  <div class="table-wrap" id="table-wrap" hidden>
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">Checked</th>
+          <th scope="col">Result</th>
+          <th scope="col">HTTP</th>
+          <th scope="col">Response</th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+</Layout>
+
+<script>
+  import {
+    byId, describe, el, errorMessage, formatTime, getChecks, getSites,
+    isUp, setNote, type Check,
+  } from "../lib/api";
+
+  const select = byId<HTMLSelectElement>("site");
+  const refresh = byId<HTMLButtonElement>("refresh");
+  const state = byId<HTMLParagraphElement>("state");
+  const summary = byId<HTMLParagraphElement>("summary");
+  const tableWrap = byId<HTMLDivElement>("table-wrap");
+  const rows = byId<HTMLTableSectionElement>("rows");
+
+  function showChecks(checks: Check[]) {
+    tableWrap.hidden = checks.length === 0;
+    rows.replaceChildren(
+      ...checks.map((c) => {
+        const s = describe(c);
+        return el("tr", {},
+          el("td", {}, formatTime(c.CheckedAt)),
+          el("td", {}, el("span", { class: `status ${s.cls}` }, s.label)),
+          el("td", {}, c.HTTPStatus ? String(c.HTTPStatus) : "no response"),
+          el("td", {}, c.HTTPStatus ? `${c.ResponseTimeMs} ms` : ""));
+      }),
+    );
+
+    if (!checks.length) {
+      summary.textContent = "";
+      setNote(state, "No checks yet. The first result appears after the next scheduled check.");
+      return;
+    }
+
+    const up = checks.filter(isUp).length;
+    const times = checks.filter((c) => c.HTTPStatus).map((c) => c.ResponseTimeMs);
+    const avg = times.length ? Math.round(times.reduce((a, b) => a + b, 0) / times.length) : null;
+    const parts = [`${checks.length} ${checks.length === 1 ? "check" : "checks"}`, `${up} ok`, `${checks.length - up} failed`];
+    if (avg !== null) parts.push(`average ${avg} ms`);
+    summary.textContent = parts.join(", ");
+    setNote(state, "");
+  }
+
+  async function loadChecks() {
+    const alias = select.value;
+    if (!alias) {
+      tableWrap.hidden = true;
+      summary.textContent = "";
+      setNote(state, select.disabled ? "No websites yet. Add one on the Websites page." : "Select a website above.");
+      return;
+    }
+
+    refresh.disabled = true;
+    setNote(state, "Loading...");
+    try {
+      showChecks(await getChecks(alias));
+    } catch (e) {
+      tableWrap.hidden = true;
+      summary.textContent = "";
+      setNote(state, `Could not load history: ${errorMessage(e)}`, "error");
+    } finally {
+      refresh.disabled = false;
+    }
+  }
+
+  async function init() {
+    try {
+      const sites = await getSites();
+      select.replaceChildren(
+        el("option", { value: "" }, "Select a website"),
+        ...sites.map((s) => el("option", { value: s.Alias }, `${s.Alias} (${s.URL})`)),
+      );
+      select.disabled = sites.length === 0;
+
+      const wanted = new URLSearchParams(location.search).get("alias");
+      if (wanted && sites.some((s) => s.Alias === wanted)) select.value = wanted;
+      else if (sites.length === 1) select.value = sites[0].Alias;
+    } catch (e) {
+      select.replaceChildren(el("option", { value: "" }, "Unavailable"));
+      select.disabled = true;
+      setNote(state, `Could not load websites: ${errorMessage(e)}`, "error");
+      return;
+    }
+    await loadChecks();
+  }
+
+  select.addEventListener("change", () => {
+    const url = new URL(location.href);
+    if (select.value) url.searchParams.set("alias", select.value);
+    else url.searchParams.delete("alias");
+    history.replaceState({}, "", url);
+    loadChecks();
+  });
+
+  refresh.addEventListener("click", loadChecks);
+  init();
+</script>
+
+<style is:global>
+  .picker {
+    display: grid;
+    gap: 0.25rem;
+    max-width: 28rem;
+    margin-top: 1rem;
+    font-size: 0.875rem;
+    color: var(--muted);
+  }
+
+  .summary {
+    margin: 0.75rem 0 1rem;
+    min-height: 1.5em;
+  }
+
+  .table-wrap {
+    overflow-x: auto;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: left;
+    font-variant-numeric: tabular-nums;
+  }
+
+  th,
+  td {
+    padding: 0.6rem 0.75rem 0.6rem 0;
+    border-top: 1px solid var(--border);
+    white-space: nowrap;
+  }
+
+  th {
+    color: var(--muted);
+    font-size: 0.875rem;
+    font-weight: 400;
+  }
+
+  tbody tr:last-child td {
+    border-bottom: 1px solid var(--border);
+  }
+</style>

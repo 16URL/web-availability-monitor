@@ -22,6 +22,9 @@ func NewScheduler(svc *service.Service, interval time.Duration, log *slog.Logger
 	if workers <= 0 {
 		workers = 1
 	}
+	if interval <=0 {
+		interval = 5 * time.Minute
+	}
 	return &Scheduler{service: svc, interval: interval, slog: log, worker: workers}
 }
 
